@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cyberpunk Geo-Hazard Tracker</title>
+    <!-- Leaflet.js for Map -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <style>
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @keyframes text-flicker {
+            0%, 19%, 21%, 23%, 25%, 54%, 56%, 100% { text-shadow: 0 0 5px #00f0ff, 0 0 10px #00f0ff, 0 0 20px #00f0ff, 0 0 40px #f000ff, 0 0 70px #f000ff; }
+            20%, 24%, 55% { text-shadow: none; }
+        }
+        @keyframes rotate-typhoon { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        :root {
+            --primary-glow: #00f0ff; --secondary-glow: #f000ff; --dark-background: #0a0a1a;
+            --panel-background: rgba(10, 25, 47, 0.85); --text-color: #e6f1ff;
+            --font-primary: 'Share Tech Mono', monospace;
+        }
+
+        html, body { height: 100%; margin: 0; overflow: hidden; font-family: var(--font-primary); background-color: var(--dark-background); }
+        #map-container { width: 100%; height: 100%; animation: fadeIn 1s; background-color: #000; }
+        
+        /* Loader */
+        .loader-container {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            background-color: var(--dark-background); z-index: 10000;
+        }
+        .loader {
+            border: 6px solid rgba(0, 240, 255, 0.2); border-top: 6px solid var(--primary-glow);
+            border-radius: 50%; width: 60px; height: 60px; animation: spin 1s linear infinite;
+        }
+        .loader-container p { margin-top: 1rem; font-weight: 500; color: var(--primary-glow); animation: text-flicker 2s linear infinite; }
+
+        /* Map Elements */
+        .country-label, .plate-label {
+            background: transparent; border: none; box-shadow: none; color: rgba(255, 255, 255, 0.6);
+            font-size: 14px; font-weight: bold; text-shadow: 0 0 4px #000;
+        }
+        .plate-label { color: var(--secondary-glow); text-shadow: 0 0 5px var(--secondary-glow); }
+        .cyberpunk-hollow-marker { border-radius: 50%; background: transparent; border-style: solid; }
+        
+        /* Typhoon Marker */
+        .typhoon-marker {
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><path d="M50,0 A50,50 0 0,1 100,50 L90,50 A40,40 0 0,0 50,10" fill="%2300f0ff" opacity="0.8"/><path d="M100,50 A50,50 0 0,1 50,100 L50,90 A40,40 0 0,0 90,50" fill="%2300f0ff" opacity="0.8"/><path d="M50,100 A50,50 0 0,1 0,50 L10,50 A40,40 0 0,0 50,90" fill="%2300f0ff" opacity="0.8"/><path d="M0,50 A50,50 0 0,1 50,0 L50,10 A40,40 0 0,0 10,50" fill="%2300f0ff" opacity="0.8"/></svg>');
+            background-size: contain;
+            animation: rotate-typhoon 5s linear infinite;
+        }
+        
+        /* Controls & Popups */
+        .leaflet-control-buttons a, .legend, .leaflet-popup-content-wrapper, .leaflet-popup-tip {
+            background: var(--panel-background); border: 1px solid var(--primary-glow); color: var(--text-color);
+            box-shadow: 0 0 15px rgba(0, 240, 255, 0.3); border-radius: 4px;
+        }
+        .leaflet-control-buttons a {
+            color: var(--primary-glow); width: 34px; height: 34px; line-height: 34px; text-align: center;
+            text-decoration: none; font-size: 1.5rem; margin-bottom: 5px; transition: all 0.2s ease;
+        }
+        .leaflet-control-buttons a:hover { background: var(--primary-glow); color: var(--dark-background); }
+        .legend { padding: 10px; }
+        .legend h4 { margin: 0 0 10px; color: var(--primary-glow); text-align: center; font-size: 1.1em; }
+        .legend div { display: flex; align-items: center; margin-bottom: 5px; }
+        .legend i { width: 18px; height: 18px; border-radius: 50%; margin-right: 8px; }
+        .legend .quake-icon { background: transparent; border-style: solid; border-width: 3px; }
+        .legend .line { width: 18px; height: 2px; margin-right: 8px; }
+        .legend .typhoon-icon { background-size: contain; background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><path d="M50,0 A50,50 0 0,1 100,50 L90,50 A40,40 0 0,0 50,10" fill="%2300f0ff" opacity="0.8"/><path d="M100,50 A50,50 0 0,1 50,100 L50,90 A40,40 0 0,0 90,50" fill="%2300f0ff" opacity="0.8"/><path d="M50,100 A50,50 0 0,1 0,50 L10,50 A40,40 0 0,0 50,90" fill="%2300f0ff" opacity="0.8"/><path d="M0,50 A50,50 0 0,1 50,0 L50,10 A40,40 0 0,0 10,50" fill="%2300f0ff" opacity="0.8"/></svg>');}
+    </style>
+</head>
+<body>
+
+    <div id="map-container"></div>
+    <div class="loader-container" id="loader">
+        <div class="loader"></div>
+        <p>Initializing System...</p>
+    </div>
+
+    <script>
+        let earthquakeMap = null, allQuakes = [], countriesLayer = null, platesLayer = null, plateLabelsLayer = null;
+        let typhoonLayerGroup = null;
+
+        const CYBERPUNK_PALETTE = ['#0d47a1', '#1a237e', '#4a148c', '#004d40', '#b71c1c', '#3e2723'];
+        const TYPHOON_COLORS = ['#00f0ff', '#ff3333', '#ffff00', '#f000ff', '#33ff33'];
+        
+        function getMagnitudeInfo(mag) {
+            if (mag >= 6) return { color: '#f000ff' }; if (mag >= 5) return { color: '#ff3333' };
+            if (mag >= 4) return { color: '#ffff00' }; return { color: '#00f0ff' };
+        }
+
+        async function initialize() {
+            const loader = document.getElementById('loader');
+            try {
+                earthquakeMap = L.map('map-container').setView([23.5, 121], 3);
+                L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+                    subdomains: 'abcd', maxZoom: 18
+                }).addTo(earthquakeMap);
+                
+                typhoonLayerGroup = L.layerGroup();
+
+                await Promise.all([ fetchEarthquakeData(), addCountriesLayer(), createPlatesLayer() ]);
+                addCustomControls();
+            } catch (error) { console.error("Initialization failed:", error); } 
+            finally {
+                loader.style.opacity = '0';
+                setTimeout(() => { loader.style.display = 'none'; }, 500);
+            }
+        }
+
+        async function fetchEarthquakeData() {
+            const now = new Date();
+            const fiveDaysAgo = new Date(now.getTime() - (5 * 24 * 60 * 60 * 1000));
+            const url = `https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime=${fiveDaysAgo.toISOString()}`;
+            const response = await fetch(url);
+            const data = await response.json();
+            allQuakes = data.features.sort((a, b) => b.properties.mag - a.properties.mag);
+            renderEarthquakeMarkers(allQuakes);
+        }
+
+        function renderEarthquakeMarkers(quakes) {
+            earthquakeMap.eachLayer(layer => { if (layer.options.isEarthquakeMarker) earthquakeMap.removeLayer(layer); });
+            quakes.forEach(quake => {
+                const mag = quake.properties.mag;
+                if (mag < 0) return;
+                const lat = quake.geometry.coordinates[1];
+                const lon = quake.geometry.coordinates[0];
+                const magInfo = getMagnitudeInfo(mag);
+                const iconSize = 10 + (mag * 2);
+
+                const icon = L.divIcon({
+                    html: ``, className: `cyberpunk-hollow-marker`,
+                    iconSize: [iconSize, iconSize], iconAnchor: [iconSize / 2, iconSize / 2]
+                });
+                
+                const marker = L.marker([lat, lon], {icon: icon, isEarthquakeMarker: true}).addTo(earthquakeMap);
+                
+                if (marker._icon) {
+                    marker._icon.style.borderColor = magInfo.color;
+                    marker._icon.style.borderWidth = '2px';
+                    marker._icon.style.boxShadow = `0 0 ${3 + mag}px ${magInfo.color}`;
+                }
+                marker.bindPopup(`<b>Magnitude: ${mag.toFixed(2)}</b><br>Location: ${quake.properties.place}<br>Time: ${new Date(quake.properties.time).toLocaleString('en-GB')}`);
+            });
+        }
+
+        async function addCountriesLayer() {
+            if (countriesLayer) return;
+            try {
+                const response = await fetch('https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json');
+                const geojsonData = await response.json();
+                countriesLayer = L.geoJson(geojsonData, {
+                    style: (feature) => {
+                        const countryIndex = Math.abs(feature.id.split("").reduce((a,b)=>{a=((a<<5)-a)+b.charCodeAt(0);return a&a},0)) % CYBERPUNK_PALETTE.length;
+                        return { fillColor: CYBERPUNK_PALETTE[countryIndex], weight: 1, color: 'rgba(0, 240, 255, 0.5)', fillOpacity: 0.2 };
+                    },
+                    onEachFeature: (feature, layer) => {
+                        layer.bindTooltip(feature.properties.name, { permanent: true, direction: 'center', className: 'country-label' });
+                    }
+                }).addTo(earthquakeMap);
+                countriesLayer.bringToBack();
+            } catch(e) { console.error("Could not load country data", e); }
+        }
+        
+        async function createPlatesLayer() {
+            if (platesLayer) return;
+             try {
+                const response = await fetch('https://raw.githubusercontent.com/fraxen/tectonicplates/master/GeoJSON/PB2002_boundaries.json');
+                const geojsonData = await response.json();
+                platesLayer = L.geoJson(geojsonData, { style: { color: "#f000ff", weight: 2, opacity: 0.8 } });
+                plateLabelsLayer = L.geoJson(geojsonData, {
+                     onEachFeature: (feature, layer) => {
+                         if (feature.properties && feature.properties.PlateA) {
+                             layer.bindTooltip(feature.properties.PlateA, { permanent: true, direction: 'center', className: 'plate-label', opacity: 0.7 });
+                         }
+                     }
+                });
+            } catch(e) { console.error("Could not load tectonic plate data", e); }
+        }
+
+        async function fetchAndRenderTyphoons() {
+            const loader = document.getElementById('loader');
+            loader.style.opacity = '1'; loader.style.display = 'flex';
+            
+            try {
+                // Using a demo data source for active cyclones. A real application would use a live API.
+                const response = await fetch('https://www.nrlmry.navy.mil/tcdat/json/activestorms.json');
+                const activeStorms = await response.json();
+                
+                typhoonLayerGroup.clearLayers();
+
+                if (activeStorms.storms.length === 0) {
+                    alert('No active tropical cyclones found at the moment.');
+                    return;
+                }
+
+                activeStorms.storms.forEach((storm, index) => {
+                    const stormColor = TYPHOON_COLORS[index % TYPHOON_COLORS.length];
+                    const stormName = storm.storm_name.trim();
+                    const stormTrack = storm.track_history.map(p => ({
+                        lat: p[2], lon: p[3], time: p[1], wind: p[4], pressure: p[5], type: 'past'
+                    }));
+                    // Add forecast if available
+                    if(storm.forecast_track) {
+                        storm.forecast_track.forEach(p => stormTrack.push({
+                             lat: p[2], lon: p[3], time: p[1], wind: p[4], pressure: p[5], type: 'forecast'
+                        }));
+                    }
+                    
+                    const pastPoints = stormTrack.filter(p => p.type === 'past').map(p => [p.lat, p.lon]);
+                    const forecastPoints = stormTrack.filter(p => p.type === 'forecast').map(p => [p.lat, p.lon]);
+                    
+                    // Add current position to both lines for continuity
+                    if (pastPoints.length > 0) {
+                        forecastPoints.unshift(pastPoints[pastPoints.length - 1]);
+                    }
+
+                    L.polyline(pastPoints, { color: stormColor, weight: 3 }).addTo(typhoonLayerGroup);
+                    L.polyline(forecastPoints, { color: stormColor, weight: 3, dashArray: '5, 10' }).addTo(typhoonLayerGroup);
+
+                    stormTrack.forEach(p => {
+                        L.circleMarker([p.lat, p.lon], { radius: 4, color: stormColor, fillColor: stormColor, fillOpacity: 0.8 }).addTo(typhoonLayerGroup)
+                         .bindPopup(`<b>${stormName}</b><br>Time: ${p.time}<br>Wind: ${p.wind} kts<br>Pressure: ${p.pressure} mb`);
+                    });
+
+                    const currentPos = stormTrack.filter(p => p.type === 'past').pop();
+                    if (currentPos) {
+                        const typhoonIcon = L.divIcon({ className: 'typhoon-marker', iconSize: [50, 50] });
+                        L.marker([currentPos.lat, currentPos.lon], { icon: typhoonIcon }).addTo(typhoonLayerGroup)
+                         .bindPopup(`<b>${stormName} (Current)</b><br>Time: ${currentPos.time}<br>Wind: ${currentPos.wind} kts`);
+                    }
+                });
+                
+                typhoonLayerGroup.addTo(earthquakeMap);
+
+            } catch (e) {
+                console.error("Could not load typhoon data", e);
+                alert("Failed to load typhoon data. The data source may be temporarily unavailable.");
+            } finally {
+                 loader.style.opacity = '0';
+                 setTimeout(() => { loader.style.display = 'none'; }, 500);
+            }
+        }
+
+        function openListInNewWindow() {
+            const newWindow = window.open("", "EarthquakeList", "width=600,height=800");
+            let content = `
+                <html><head><title>Recent Earthquakes List</title>
+                <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+                <style>
+                    body { font-family: 'Share Tech Mono', monospace; background-color: #0a0a1a; color: #e6f1ff; margin: 0; padding: 1rem; }
+                    h2 { text-align: center; color: #00f0ff; text-shadow: 0 0 5px #00f0ff; }
+                    .item { display: flex; align-items: center; padding: 1rem; border-bottom: 1px solid rgba(0, 240, 255, 0.2); gap: 1rem; }
+                    .mag { font-size: 1.5rem; width: 60px; height: 60px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border-radius: 50%; color: #fff; text-shadow: 0 0 5px #000; }
+                    .info { flex-grow: 1; }
+                    .loc { font-weight: 500; color: #fff; } .details { opacity: 0.8; font-size: 0.9rem; margin-top: 0.25rem; }
+                </style>
+                </head><body><h2>Recent Earthquakes (Last 5 Days)</h2>`;
+            
+            allQuakes.forEach(quake => {
+                 const props = quake.properties;
+                 const mag = props.mag;
+                 content += `
+                    <div class="item">
+                        <div class="mag" style="background-color: ${getMagnitudeInfo(mag).color}">${mag.toFixed(1)}</div>
+                        <div class="info">
+                            <div class="loc">${props.place || 'Unknown Origin'}</div>
+                            <div class="details">${new Date(props.time).toLocaleString('en-GB')}</div>
+                        </div>
+                    </div>
+                 `;
+            });
+            content += '</body></html>';
+            newWindow.document.write(content);
+            newWindow.document.close();
+        }
+
+        function addCustomControls() {
+            L.Control.CustomButtons = L.Control.extend({
+                onAdd: function(map) {
+                    const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+                    
+                    const listButton = L.DomUtil.create('a', 'leaflet-control-buttons', container);
+                    listButton.innerHTML = '&#9776;'; listButton.href = '#'; listButton.title = 'Open Recent Earthquakes List';
+                    L.DomEvent.on(listButton, 'click', L.DomEvent.stop).on(listButton, 'click', openListInNewWindow);
+
+                    const plateButton = L.DomUtil.create('a', 'leaflet-control-buttons', container);
+                    plateButton.innerHTML = '☷'; plateButton.href = '#'; plateButton.title = 'Toggle Tectonic Plates';
+                    L.DomEvent.on(plateButton, 'click', L.DomEvent.stop).on(plateButton, 'click', () => {
+                         if (earthquakeMap.hasLayer(platesLayer)) {
+                            earthquakeMap.removeLayer(platesLayer); if (plateLabelsLayer) earthquakeMap.removeLayer(plateLabelsLayer);
+                         } else {
+                            if (platesLayer) {
+                                platesLayer.addTo(earthquakeMap).bringToBack();
+                                if(plateLabelsLayer) plateLabelsLayer.addTo(earthquakeMap);
+                                if (countriesLayer) countriesLayer.bringToBack();
+                            }
+                         }
+                    });
+                    
+                    const typhoonButton = L.DomUtil.create('a', 'leaflet-control-buttons', container);
+                    typhoonButton.innerHTML = '🌀'; typhoonButton.href = '#'; typhoonButton.title = 'Toggle Typhoon Tracks';
+                    L.DomEvent.on(typhoonButton, 'click', L.DomEvent.stop).on(typhoonButton, 'click', () => {
+                        if(earthquakeMap.hasLayer(typhoonLayerGroup)) {
+                            typhoonLayerGroup.clearLayers();
+                            earthquakeMap.removeLayer(typhoonLayerGroup);
+                        } else {
+                            fetchAndRenderTyphoons();
+                        }
+                    });
+
+                    return container;
+                }
+            });
+            new L.Control.CustomButtons({ position: 'topright' }).addTo(earthquakeMap);
+        }
+
+        initialize();
+    </script>
+</body>
+</html>
