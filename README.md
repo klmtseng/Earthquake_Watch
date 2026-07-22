@@ -1,5 +1,7 @@
 # Earthquake_Watch
 
+**Live demo:** https://klmtseng.github.io/Earthquake_Watch/
+
 Cyberpunk-styled geo-hazard map in a single HTML page (Leaflet.js).
 
 Shows on a dark world map:
@@ -11,5 +13,5 @@ Shows on a dark world map:
 
 ## Run
 
-No build step. Open `Index.html` in a browser (internet connection required —
+No build step. Open `index.html` in a browser (internet connection required —
 all data is fetched live from public APIs).
